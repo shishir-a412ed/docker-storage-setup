@@ -111,6 +111,14 @@ DOCKER_ROOT_VOLUME:
       filesystem mounted on docker root directory
       (default: /var/lib/docker).
 
+      NOTE: DOCKER_ROOT_VOLUME is deprecated, and will be removed
+      soon. Please use EXTRA_VOLUME_MOUNT_DIR in lieu of
+      DOCKER_ROOT_VOLUME.
+
+      NOTE: A user cannot specify DOCKER_ROOT_VOLUME and
+      EXTRA_VOLUME_MOUNT_DIR together. They are mutually exclusive
+      options.
+
 DOCKER_ROOT_VOLUME_SIZE:
       Specify the desired size for docker root volume. It defaults
       to 40% of all free space.
@@ -128,6 +136,43 @@ DOCKER_ROOT_VOLUME_SIZE:
       root volume. e.g if free space in the volume group is 10G, 
       devicemapper thin pool size would be 4G (40% of 10G) and docker
       root volume would be 2.4G (40% of 6G).
+
+EXTRA_VOLUME_NAME:
+     Name of the logical volume that will be mounted on
+     EXTRA_VOLUME_MOUNT_DIR. If a user is setting
+     EXTRA_VOLUME_MOUNT_DIR, he/she must set
+     EXTRA_VOLUME_NAME too.
+
+EXTRA_VOLUME_MOUNT_DIR:
+     Creates a logical volume named $EXTRA_VOLUME_NAME
+     and mount it on specified directory path. By default
+     no new logical volume will be created. e.g. Specifying
+     EXTRA_VOLUME_MOUNT_DIR=/var/lib/containers will carve
+     out a logical volume, create a filesystem on it and
+     mount it on /var/lib/containers.
+
+     NOTE: A user cannot specify EXTRA_VOLUME_MOUNT_DIR and
+     DOCKER_ROOT_VOLUME together. They are mutually
+     exclusive options.
+
+EXTRA_VOLUME_SIZE:
+     Specify the desired size for EXTRA_VOLUME_MOUNT_DIR
+     root volume. It defaults to 40% of all free space.
+
+     EXTRA_VOLUME_SIZE can take values acceptable to
+     "lvcreate -L" as well as some values acceptable to
+     "lvcreate -l". If user intends to pass values acceptable
+     to "lvcreate -l", then only those values which contains "%"
+     in syntax are acceptable.  If value does not contain "%" it
+     is assumed value is suitable for "lvcreate -L".
+
+     NOTE: If both STORAGE_DRIVER=devicemapper and
+     EXTRA_VOLUME_MOUNT_DIR is set, docker-storage-setup
+     would set up the thin pool for devicemapper first,
+     followed by extra volume. e.g if free space in the
+     volume group is 10G, devicemapper thin pool size
+     would be 4G (40% of 10G) and extra volume would be
+     2.4G (40% of 6G).
 
 The options below should be specified as values acceptable to 'lvextend -L':
 

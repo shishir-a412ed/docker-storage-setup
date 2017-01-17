@@ -419,6 +419,33 @@ systemd_escaped_filename () {
   echo $filename
 }
 
+reset_extra_volume () {
+  local mp filename
+  if extra_volume_exists; then
+    mp=$(extra_lv_mountpoint)
+    if [ -n "$mp" ];then
+      if ! umount $mp >/dev/null 2>&1; then
+        Fatal "Failed to unmount $mp"
+      fi
+    fi
+    lvchange -an $VG/${EXTRA_VOLUME_NAME}
+    lvremove $VG/${EXTRA_VOLUME_NAME}
+  else
+    return 0
+  fi
+  # If the user has manually unmounted ${RESOLVED_MOUNT_DIR_PATH}, mountpoint (mp)
+  # will be empty. Extract ${mp} from $(RESOLVED_MOUNT_DIR_PATH) in that case.
+  if [ -z "$mp" ];then
+    mp=${RESOLVED_MOUNT_DIR_PATH}
+  fi
+  filename=$(systemd_escaped_filename $mp)
+  if [ -f /etc/systemd/system/$filename ];then
+    systemctl disable $filename >/dev/null 2>&1
+    systemctl daemon-reload
+    rm /etc/systemd/system/$filename >/dev/null 2>&1
+  fi
+}
+
 reset_docker_root_volume () {
   local mp filename
   if docker_root_volume_exists; then
@@ -878,9 +905,21 @@ get_existing_storage_driver() {
   return 1
 }
 
+extra_volume_exists() {
+  lvs $VG/$EXTRA_VOLUME_NAME > /dev/null 2>&1 && return 0
+  return 1
+}
+
 docker_root_volume_exists() {
   lvs $VG/$DOCKER_ROOT_LV_NAME > /dev/null 2>&1 && return 0
   return 1
+}
+
+# This returns the mountpoint of $EXTRA_VOLUME_NAME
+extra_lv_mountpoint() {
+  local mounts
+  mounts=$(findmnt -n -o TARGET --first-only --source /dev/$VG/$EXTRA_VOLUME_NAME)
+  echo $mounts
 }
 
 # This returns the mountpoint of $DOCKER_ROOT_LV_NAME
@@ -888,6 +927,31 @@ docker_root_lv_mountpoint() {
   local mounts
   mounts=$(findmnt -n -o TARGET --first-only --source /dev/$VG/$DOCKER_ROOT_LV_NAME)
   echo $mounts
+}
+
+# Mount $EXTRA_VOLUME_NAME on $RESOLVED_MOUNT_DIR_PATH.
+# drop a systemd mount unit configuration file at /etc/systemd/system.
+# This would allow the $RESOLVED_MOUNT_DIR_PATH mountpoint to persist across reboots.
+mount_extra_volume() {
+  local filename
+  # filename must match $RESOLVED_MOUNT_DIR_PATH path.
+  # e.g if $RESOLVED_MOUNT_DIR_PATH is /var/lib/containers
+  # then filename will be var-lib-containers.mount
+  filename=$(systemd_escaped_filename ${RESOLVED_MOUNT_DIR_PATH})
+  cat <<EOF > /etc/systemd/system/$filename
+[Unit]
+Description=Mount $EXTRA_VOLUME_NAME on $RESOLVED_MOUNT_DIR_PATH directory.
+Before=docker-storage-setup.service
+[Mount]
+What=/dev/$VG/$EXTRA_VOLUME_NAME
+Where=${RESOLVED_MOUNT_DIR_PATH}
+Type=xfs
+Options=defaults
+[Install]
+WantedBy=docker-storage-setup.service
+EOF
+  systemctl enable $filename >/dev/null 2>&1
+  systemctl start $filename
 }
 
 # Mount docker root volume on $DOCKER_ROOT_DIR.
@@ -900,7 +964,7 @@ mount_docker_root_volume() {
   filename=$(systemd_escaped_filename ${DOCKER_ROOT_DIR})
   cat <<EOF > /etc/systemd/system/$filename
 [Unit]
-Description=Mount docker-root-lv on docker root directory.
+Description=Mount $DOCKER_ROOT_LV_NAME on docker root directory.
 Before=docker-storage-setup.service
 
 [Mount]
@@ -929,6 +993,35 @@ create_lv() {
     lvcreate -y -L $data_size -n $data_lv_name $VG || return 1
   fi
 return 0
+}
+
+setup_extra_volume() {
+  if [ -z "$EXTRA_VOLUME_SIZE" ]; then
+    Fatal "Specify a valid value for EXTRA_VOLUME_SIZE."
+  fi
+
+  if ! check_data_size_syntax $EXTRA_VOLUME_SIZE; then
+    Fatal "EXTRA_VOLUME_SIZE value $EXTRA_VOLUME_SIZE is invalid."
+  fi
+
+  if ! create_lv $EXTRA_VOLUME_SIZE $EXTRA_VOLUME_NAME; then
+    Fatal "Failed to create volume $EXTRA_VOLUME_NAME of size ${EXTRA_VOLUME_SIZE}."
+  fi
+
+  if ! mkfs -t xfs /dev/$VG/$EXTRA_VOLUME_NAME > /dev/null; then
+    Fatal "Failed to create filesystem on /dev/$VG/${EXTRA_VOLUME_NAME}."
+  fi
+
+  if ! mount_extra_volume; then
+    Fatal "Failed to mount volume ${EXTRA_VOLUME_NAME} on ${EXTRA_VOLUME_MOUNT_DIR}"
+  fi
+
+  # setup right selinux label first time fs is created. Mount operation
+  # changes the label of directory to reflect the label on root inode
+  # of mounted fs.
+  if ! restore_selinux_context $RESOLVED_MOUNT_DIR_PATH; then
+    return 1
+  fi
 }
 
 setup_docker_root_volume() {
@@ -960,6 +1053,20 @@ setup_docker_root_volume() {
   fi
 }
 
+setup_extra_lv_fs() {
+  [ -z "$EXTRA_VOLUME_MOUNT_DIR" ] && [ -z "$EXTRA_VOLUME_NAME" ] && return 0
+  if ! setup_extra_dir; then
+    return 1
+  fi
+  if extra_volume_exists; then
+    return 0
+  fi
+  # Container runtime extra volume does not exist. Create one.
+  if ! setup_extra_volume; then
+    Fatal "Failed to setup logical volume for container root."
+  fi
+}
+
 setup_docker_root_lv_fs() {
   [ "$DOCKER_ROOT_VOLUME" != "yes" ] && return 0
   if ! setup_docker_root_dir; then
@@ -974,6 +1081,23 @@ setup_docker_root_lv_fs() {
   fi
 }
 
+check_storage_options(){
+  if [ "$DOCKER_ROOT_VOLUME" == "yes" ] && [ ! -z "$EXTRA_VOLUME_MOUNT_DIR" ];then
+     Fatal "DOCKER_ROOT_VOLUME and EXTRA_VOLUME_MOUNT_DIR are mutually exclusive options. Use either one of them, not both"
+  fi
+
+  if [ ! -z "$EXTRA_VOLUME_NAME" ] && [ -z "$EXTRA_VOLUME_MOUNT_DIR" ];then
+     Fatal "EXTRA_VOLUME_MOUNT_DIR cannot be empty, when EXTRA_VOLUME_NAME is set"
+  fi
+
+  if [ ! -z "$EXTRA_VOLUME_MOUNT_DIR" ] && [ -z "$EXTRA_VOLUME_NAME" ];then
+     Fatal "EXTRA_VOLUME_NAME cannot be empty, when EXTRA_VOLUME_MOUNT_DIR is set"
+  fi
+  if [ "$DOCKER_ROOT_VOLUME" == "yes" ];then
+     Info "DOCKER_ROOT_VOLUME is deprecated, and will be removed soon. Please use EXTRA_VOLUME_MOUNT_DIR in lieu of DOCKER_ROOT_VOLUME."
+  fi
+}
+
 setup_storage() {
   local current_driver
 
@@ -981,6 +1105,8 @@ setup_storage() {
     Info "No storage driver specified. Specify one using STORAGE_DRIVER option."
     exit 0
   fi
+
+  check_storage_options
 
   if ! is_valid_storage_driver $STORAGE_DRIVER;then
     Fatal "Invalid storage driver: ${STORAGE_DRIVER}."
@@ -1000,10 +1126,11 @@ setup_storage() {
    Fatal "Storage is already configured with ${current_driver} driver. Can't configure it with ${STORAGE_DRIVER} driver. To override, remove $DOCKER_STORAGE and retry."
   fi
 
-  # If a user decides to setup both (a) and (b):
+  # If a user decides to setup (a) and (b)/(c):
   # a) lvm thin pool for devicemapper.
   # b) a separate volume for docker root.
-  # (a) will have a higher priority than (b) and will be setup first.
+  # c) a separate named ($EXTRA_VOLUME_NAME) volume for $EXTRA_VOLUME_MOUNT_DIR.
+  # (a) will be setup first, followed by (b) or (c).
 
   # Set up lvm thin pool LV.
   if [ "$STORAGE_DRIVER" == "devicemapper" ]; then
@@ -1015,6 +1142,13 @@ setup_storage() {
   # If docker root is on a separate volume, setup that.
   if ! setup_docker_root_lv_fs; then
     Error "Failed to setup docker root volume."
+    return 1
+  fi
+
+  # Set up a separate named ($EXTRA_VOLUME_NAME) volume
+  # for $EXTRA_VOLUME_MOUNT_DIR.
+  if ! setup_extra_lv_fs; then
+    Error "Failed to setup logical volume for $EXTRA_VOLUME_MOUNT_DIR."
     return 1
   fi
 }
@@ -1057,6 +1191,14 @@ get_docker_root_dir(){
     fi
 }
 
+setup_extra_dir() {
+  [ -d "$RESOLVED_MOUNT_DIR_PATH" ] && return 0
+
+  # Directory does not exist. Create one.
+  mkdir -p $RESOLVED_MOUNT_DIR_PATH
+  return $?
+}
+
 setup_docker_root_dir() {
   if ! get_docker_root_dir; then
     return 1
@@ -1070,12 +1212,17 @@ setup_docker_root_dir() {
 }
 
 reset_storage() {
-  
+    check_storage_options
+    if [ ! -z "$EXTRA_VOLUME_MOUNT_DIR" ] && [ ! -z "$EXTRA_VOLUME_NAME" ];then
+       reset_extra_volume
+    fi
+
     if [ "$DOCKER_ROOT_VOLUME" == "yes" ];then
-        reset_docker_root_volume
-    fi      	
+       reset_docker_root_volume
+    fi
+
     if [ "$STORAGE_DRIVER" == "devicemapper" ]; then
-	reset_lvm_thin_pool
+       reset_lvm_thin_pool
     fi
     rm -f $DOCKER_STORAGE
 }
@@ -1111,6 +1258,11 @@ fi
 # take that into account.
 if [ -e /etc/sysconfig/docker-storage-setup ]; then
   source /etc/sysconfig/docker-storage-setup
+fi
+
+# Populate $RESOLVED_MOUNT_DIR_PATH
+if [ ! -z "$EXTRA_VOLUME_MOUNT_DIR" ];then
+  RESOLVED_MOUNT_DIR_PATH=$(realpath -m $EXTRA_VOLUME_MOUNT_DIR)
 fi
 
 # Read mounts
