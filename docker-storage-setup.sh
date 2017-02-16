@@ -1148,6 +1148,11 @@ reset_storage() {
   rm -f ${STORAGE_OUT_FILE}
 }
 
+print_version(){
+  local version="1.0.0"
+  echo "$version"
+}
+
 usage() {
   cat <<-FOE
     Usage: $1 [OPTIONS] INPUTFILE OUTPUTFILE
@@ -1155,7 +1160,8 @@ usage() {
     Grows the root filesystem and sets up storage for container runtimes
 
     Options:
-      --help    Print help message
+      --help    Print help message.
+      --version Print version.
       --reset   Reset your docker storage to init state. 
 FOE
 }
@@ -1176,12 +1182,13 @@ if [ -e /usr/lib/docker-storage-setup/docker-storage-setup ]; then
 fi
 
 # Main Script
-OPTS=`getopt -o h -l reset -l help -- "$@"`
+OPTS=`getopt -o h -l reset -l version -l help -- "$@"`
 eval set -- "$OPTS"
 RESET=0
 while true ; do
     case "$1" in
         --reset) RESET=1; shift;;
+	--version) print_version; exit 0;;
         -h | --help)  usage $(basename $0); exit 0;;
         --) shift; break;;
     esac
