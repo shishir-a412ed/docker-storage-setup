@@ -6,6 +6,9 @@ test_follow_symlinked_devices() {
   local test_status=1
   local testname=`basename "$0"`
   local vg_name="css-test-foo"
+  local infile="/etc/sysconfig/docker-storage-setup"
+  local outfile="/etc/sysconfig/docker-storage"
+  local default_config_name="docker"
 
   # Create a symlink for a device and try to follow it
   for dev in $TEST_DEVS; do
@@ -20,7 +23,7 @@ test_follow_symlinked_devices() {
     echo "Using symlinke devices: $dev -> $(readlink -e $dev)" >> $LOGS 
   done
 
-  cat << EOF > /etc/sysconfig/docker-storage-setup
+  cat << EOF > $infile
 DEVS="$devs"
 VG=$vg_name
 EOF
@@ -31,7 +34,7 @@ EOF
   if [ $? -ne 0 ]; then
     echo "ERROR: $testname: $CSSBIN failed." >> $LOGS
     cleanup_soft_links "$devlinks"
-    cleanup $vg_name "$TEST_DEVS"
+    cleanup $vg_name "$TEST_DEVS" "$infile" "$outfile" "$default_config_name"
     return $test_status
   fi
 
@@ -43,7 +46,7 @@ EOF
   fi
 
   cleanup_soft_links "$devlinks"
-  cleanup $vg_name "$TEST_DEVS"
+  cleanup $vg_name "$TEST_DEVS" "$infile" "$outfile" "$default_config_name"
   return $test_status
 }
 

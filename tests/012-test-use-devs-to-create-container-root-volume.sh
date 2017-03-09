@@ -9,6 +9,9 @@ test_container_root_volume() {
   local vg_name="css-test-foo"
   local root_lv_name="container-root-lv"
   local root_lv_mount_path="/var/lib/containers"
+  local infile="/etc/sysconfig/docker-storage-setup"
+  local outfile="/etc/sysconfig/docker-storage"
+  local default_config_name="docker"
 
   # Error out if any pre-existing volume group vg named css-test-foo
   if vg_exists "$vg_name"; then
@@ -17,7 +20,7 @@ test_container_root_volume() {
   fi
 
   # Create config file
-  cat << EOF > /etc/sysconfig/docker-storage-setup
+  cat << EOF > $infile
 DEVS="$devs"
 VG=$vg_name
 CONTAINER_ROOT_LV_NAME=$root_lv_name
@@ -30,7 +33,7 @@ EOF
  # Test failed.
  if [ $? -ne 0 ]; then
     echo "ERROR: $testname: $CSSBIN failed." >> $LOGS
-    cleanup_all $vg_name $root_lv_name $root_lv_mount_path "$devs"
+    cleanup_all $vg_name $root_lv_name $root_lv_mount_path "$devs" "$infile" "$outfile" "$default_config_name"
     return $test_status
  fi
 
@@ -38,7 +41,7 @@ EOF
   # successfully.
   if ! lv_exists "$vg_name" "$root_lv_name"; then
     echo "ERROR: $testname: Logical Volume $root_lv_name does not exist." >> $LOGS
-    cleanup_all $vg_name $root_lv_name $root_lv_mount_path "$devs"
+    cleanup_all $vg_name $root_lv_name $root_lv_mount_path "$devs" "$infile" "$outfile" "$default_config_name"
     return $test_status
   fi
 
@@ -48,11 +51,11 @@ EOF
   mnt=$(findmnt -n -o TARGET --first-only --source /dev/${vg_name}/${root_lv_name})
   if [ "$mnt" != "$root_lv_mount_path" ];then
    echo "ERROR: $testname: Logical Volume $root_lv_name is not mounted on $root_lv_mount_path." >> $LOGS
-   cleanup_all $vg_name $root_lv_name $root_lv_mount_path "$devs"
+   cleanup_all $vg_name $root_lv_name $root_lv_mount_path "$devs" "$infile" "$outfile" "$default_config_name"
    return $test_status
   fi
 
-  cleanup_all $vg_name $root_lv_name $root_lv_mount_path "$devs"
+  cleanup_all $vg_name $root_lv_name $root_lv_mount_path "$devs" "$infile" "$outfile" "$default_config_name"
   return 0
 }
 
@@ -61,13 +64,16 @@ cleanup_all(){
   local lv_name=$2
   local mount_path=$3
   local devs=$4
+  local infile=$5
+  local outfile=$6
+  local default_config_name=$7
 
   umount $mount_path >> $LOGS 2>&1
   lvchange -an $vg_name/${lv_name} >> $LOGS 2>&1
   lvremove $vg_name/${lv_name} >> $LOGS 2>&1
 
   cleanup_mount_file $mount_path
-  cleanup $vg_name "$devs"
+  cleanup $vg_name "$devs" "$infile" "$outfile" "$default_config_name"
 }
 
 # This test will check if a user set

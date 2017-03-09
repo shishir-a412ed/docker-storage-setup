@@ -6,9 +6,12 @@ test_reset_overlay2() {
   local testname=`basename "$0"`
   local infile=${WORKDIR}/container-storage-setup
   local outfile=${WORKDIR}/container-storage
+  local config_dir="/var/lib/container-storage-setup"
+  local config_name="css-test-config"
 
   cat << EOF > $infile
 STORAGE_DRIVER=overlay2
+CONFIG_NAME=$config_name
 EOF
 
  # Run container-storage-setup
@@ -18,12 +21,14 @@ EOF
  if [ $? -ne 0 ]; then
     echo "ERROR: $testname: $CSSBIN failed." >> $LOGS
     rm -f $infile $outfile
+    rm -rf $config_dir/$config_name
     return 1
  fi
 
  if ! grep -q "overlay2" $outfile; then
     echo "ERROR: $testname: $outfile does not have string overlay2." >> $LOGS
     rm -f $infile $outfile
+    rm -rf $config_dir/$config_name
     return 1
  fi
 
@@ -39,6 +44,7 @@ EOF
  fi
 
  rm -f $infile $outfile
+ rm -rf $config_dir/$config_name
  return $test_status
 }
 

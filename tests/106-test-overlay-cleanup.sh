@@ -6,9 +6,13 @@ test_reset_overlay() {
   local testname=`basename "$0"`
   local infile=${WORKDIR}/container-storage-setup
   local outfile=${WORKDIR}/container-storage
+  local config_dir="/var/lib/container-storage-setup"
+  local config_name="css-test-config"
+  local metadata_dir=${config_dir}/${config_name}
 
   cat << EOF > $infile
 STORAGE_DRIVER=overlay
+CONFIG_NAME=$config_name
 EOF
 
  # Run container-storage-setup
@@ -18,6 +22,7 @@ EOF
  if [ $? -ne 0 ]; then
     echo "ERROR: $testname: $CSSBIN failed." >> $LOGS
     rm -f $infile $outfile
+    rm -rf "$metadata_dir"
     return 1
  fi
 
@@ -33,6 +38,7 @@ EOF
  fi
 
  rm -f $infile $outfile
+ rm -rf "$metadata_dir"
  return $test_status
 }
 

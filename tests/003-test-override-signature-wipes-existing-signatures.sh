@@ -5,6 +5,9 @@ test_override_signatures() {
   local test_status=1
   local testname=`basename "$0"`
   local vg_name="css-test-foo"
+  local infile="/etc/sysconfig/docker-storage-setup"
+  local outfile="/etc/sysconfig/docker-storage"
+  local default_config_name="docker"
 
   # Error out if vg_name VG exists already
   if vg_exists "$vg_name"; then
@@ -12,7 +15,7 @@ test_override_signatures() {
     return $test_status
   fi 
 
-  cat << EOF > /etc/sysconfig/docker-storage-setup
+  cat << EOF > $infile
 DEVS="$devs"
 VG=$vg_name
 WIPE_SIGNATURES=true
@@ -29,7 +32,7 @@ EOF
   # Test failed.
   if [ $? -ne 0 ]; then
     echo "ERROR: $testname: $CSSBIN failed." >> $LOGS
-    cleanup $vg_name "$devs"
+    cleanup $vg_name "$devs" "$infile" "$outfile" "$default_config_name"
     return $test_status
   fi
 
@@ -40,7 +43,7 @@ EOF
     echo "ERROR: $testname: $CSSBIN failed. $vg_name was not created." >> $LOGS
   fi
 
-  cleanup $vg_name "$devs"
+  cleanup $vg_name "$devs" "$infile" "$outfile" "$default_config_name"
   return $test_status
 }
 

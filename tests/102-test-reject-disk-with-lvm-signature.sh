@@ -9,6 +9,7 @@ test_lvm_sig() {
   local vg_name="css-test-foo"
   local infile=${WORKDIR}/container-storage-setup
   local outfile=${WORKDIR}/container-storage
+  local config_name="css-test-config"
 
   # Error out if any pre-existing volume group vg named css-test-foo
   if vg_exists "$vg_name"; then
@@ -20,6 +21,7 @@ test_lvm_sig() {
 DEVS="$devs"
 VG=$vg_name
 CONTAINER_THINPOOL=container-thinpool
+CONFIG_NAME=$config_name
 EOF
 
   # create lvm signatures on disks
@@ -35,7 +37,7 @@ EOF
   # would be too check for exact error message.
   [ $? -ne 0 ] && test_status=0
 
-  cleanup $vg_name "$devs" "$infile" "$outfile"
+  cleanup $vg_name "$devs" "$infile" "$outfile" "$config_name"
   return $test_status
 }
 

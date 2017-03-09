@@ -1,5 +1,18 @@
 #!/bin/bash
 
+# Test if config exists.
+config_exists(){
+  local config_dir="/var/lib/container-storage-setup"
+  local config_name=$1
+  local metadata_dir="$config_dir"/"$config_name"
+  if [ -d "$metadata_dir" ];then
+     if [[ -e "$metadata_dir"/"input" && -e "$metadata_dir"/"output" && -e "$metadata_dir"/"metadata" ]];then
+        return 0
+     fi
+  fi
+  return 1
+}
+
 # Tests if the volume group vg_name exists
 vg_exists() {
   local vg vg_name="$1"
@@ -66,14 +79,14 @@ wipe_signatures() {
 cleanup() {
   local vg_name=$1
   local devs=$2
-  local infile=/etc/sysconfig/docker-storage-setup
-  local outfile=/etc/sysconfig/docker-storage
-  if [ $# -eq 4 ]; then
-    infile=$3
-    outfile=$4
+  local infile=$3
+  local outfile=$4
+  local config_dir="/var/lib/container-storage-setup"
+  local config_name=$5
+
+  if [ -n "$config_name" ];then
+     rm -rf "$config_dir"/"$config_name"
   fi
-
-
   vgremove -y $vg_name >> $LOGS 2>&1
   remove_pvs "$devs"
   remove_partitions "$devs"

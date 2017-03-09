@@ -12,6 +12,7 @@ test_set_extra_opts() {
   local extra_options="--storage-opt dm.fs=ext4"
   local infile=${WORKDIR}/container-storage-setup
   local outfile=${WORKDIR}/container-storage
+  local config_name="css-test-config"
 
   # Error out if volume group $vg_name exists already
   if vg_exists "$vg_name"; then
@@ -24,6 +25,7 @@ DEVS="$devs"
 VG=$vg_name
 EXTRA_STORAGE_OPTIONS="$extra_options"
 CONTAINER_THINPOOL=container-thinpool
+CONFIG_NAME=$config_name
 EOF
 
   # Run container-storage-setup
@@ -32,14 +34,14 @@ EOF
   # css failed
   if [ $? -ne 0 ]; then
     echo "ERROR: $testname: $CSSBIN failed." >> $LOGS
-    cleanup $vg_name "$devs" "$infile" "$outfile"
+    cleanup $vg_name "$devs" "$infile" "$outfile" "$config_name"
     return $test_status
   fi
 
   # Check if storage config file was created by css
   if [ ! -f $outfile ]; then
     echo "ERROR: $testname: $outfile file was not created." >> $LOGS
-    cleanup $vg_name "$devs" "$infile" "$outfile"
+    cleanup $vg_name "$devs" "$infile" "$outfile" "$config_name"
     return $test_status
   fi
 
@@ -55,7 +57,7 @@ EOF
     echo "ERROR: $testname: failed. STORAGE_OPTIONS ${STORAGE_OPTIONS} does not include extra_options ${extra_options}." >> $LOGS
   fi
 
-  cleanup $vg_name "$devs" "$infile" "$outfile"
+  cleanup $vg_name "$devs" "$infile" "$outfile" "$config_name"
   return $test_status
 }
 

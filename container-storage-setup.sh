@@ -43,6 +43,9 @@ _DOCKER_COMPAT_MODE=""
 _STORAGE_IN_FILE="/etc/sysconfig/docker-storage-setup"
 _STORAGE_OUT_FILE="/etc/sysconfig/docker-storage"
 _STORAGE_DRIVERS="devicemapper overlay overlay2"
+_CONFIG_DIR="/var/lib/container-storage-setup"
+_METADATA_VERSION=1
+_UPDATE_METADATA=false
 
 _PIPE1=/run/css-$$-fifo1
 _PIPE2=/run/css-$$-fifo2
@@ -1007,6 +1010,11 @@ setup_docker_root_lv_fs() {
 }
 
 check_storage_options(){
+  # Error out if CONFIG_NAME is missing.
+  if [ -z "$CONFIG_NAME" ];then
+     Fatal "Specify a storage configuration name using CONFIG_NAME."
+  fi
+
   if [ "$STORAGE_DRIVER" == "devicemapper" ] && [ -z "$CONTAINER_THINPOOL" ];then
      Fatal "CONTAINER_THINPOOL must be defined for the devicemapper storage driver."
   fi
@@ -1093,6 +1101,74 @@ setup_storage() {
   if ! setup_extra_lv_fs; then
     Error "Failed to setup logical volume for $CONTAINER_ROOT_LV_MOUNT_PATH."
     return 1
+  fi
+  create_css_config
+}
+
+check_devs_abs(){
+  for dev in ${_M_DEVS_ABS}; do
+      if ! grep -q "$dev" <<<${_DEVS_ABS}; then
+         return 1
+      fi
+  done
+  return 0
+}
+
+check_metadata_changes(){
+  if [ "$_M_STORAGE_DRIVER" != "$STORAGE_DRIVER" ];then
+    Fatal "Cannot set STORAGE_DRIVER to $STORAGE_DRIVER. Already configured value is $_M_STORAGE_DRIVER."
+  fi
+
+  if [ "$_M_CONTAINER_THINPOOL" != "$CONTAINER_THINPOOL" ];then
+    Fatal "Cannot set CONTAINER_THINPOOL to $CONTAINER_THINPOOL. Already configured value is $_M_CONTAINER_THINPOOL."
+  fi
+
+  if [ "$_M_VG" != "$VG" ];then
+    Fatal "Cannot set VG to $VG. Already configured value is $_M_VG."
+  fi
+
+  if [ "$_M_CONTAINER_ROOT_LV_NAME" != "$CONTAINER_ROOT_LV_NAME" ];then
+    Fatal "Cannot set CONTAINER_ROOT_LV_NAME to $CONTAINER_ROOT_LV_NAME. Already configured value is $_M_CONTAINER_ROOT_LV_NAME."
+  fi
+
+  if [ "$_M_CONTAINER_ROOT_LV_MOUNT_PATH" != "$CONTAINER_ROOT_LV_MOUNT_PATH" ];then
+    Fatal "Cannot set CONTAINER_ROOT_LV_MOUNT_PATH to $CONTAINER_ROOT_LV_MOUNT_PATH. Already configured value is $_M_CONTAINER_ROOT_LV_MOUNT_PATH."
+  fi
+
+  if [ "$_M_DOCKER_ROOT_VOLUME" != "$DOCKER_ROOT_VOLUME" ];then
+    Fatal "Cannot set DOCKER_ROOT_VOLUME to $DOCKER_ROOT_VOLUME. Already configured value is $_M_DOCKER_ROOT_VOLUME."
+  fi
+
+  if [ "$_M_DOCKER_COMPAT_MODE" != "$_DOCKER_COMPAT_MODE" ];then
+    Fatal "Cannot set _DOCKER_COMPAT_MODE to $_DOCKER_COMPAT_MODE. Already configured value is $_M_DOCKER_COMPAT_MODE."
+  fi
+
+  if ! check_devs_abs; then
+    Fatal "Cannot set _DEVS_ABS to $_DEVS_ABS. Already configured value is $_M_DEVS_ABS."
+  fi
+  _UPDATE_METADATA=true
+}
+
+create_css_config(){
+  local input_filename="input"
+  local output_filename="output"
+  local metadata_filename="metadata"
+  local metadata_dir=${_CONFIG_DIR}/${CONFIG_NAME}
+  mkdir -p ${metadata_dir}
+  cp ${_STORAGE_IN_FILE} ${metadata_dir}/${input_filename}
+  cp ${_STORAGE_OUT_FILE} ${metadata_dir}/${output_filename}
+  if [ ${_UPDATE_METADATA} == "true" ];then
+    cat <<EOF > ${metadata_dir}/${metadata_filename}
+    _M_STORAGE_DRIVER=${STORAGE_DRIVER}
+    _M_CONTAINER_THINPOOL=${CONTAINER_THINPOOL}
+    _M_VG=${VG}
+    _M_CONTAINER_ROOT_LV_NAME=${CONTAINER_ROOT_LV_NAME}
+    _M_CONTAINER_ROOT_LV_MOUNT_PATH=${CONTAINER_ROOT_LV_MOUNT_PATH}
+    _M_DOCKER_ROOT_VOLUME=${DOCKER_ROOT_VOLUME}
+    _M_DOCKER_COMPAT_MODE=${_DOCKER_COMPAT_MODE}
+    _M_DEVS_ABS=${_DEVS_ABS}
+    _M_METADATA_VERSION=${_METADATA_VERSION}
+EOF
   fi
 }
 
@@ -1220,6 +1296,7 @@ case $# in
     0)
 	CONTAINER_THINPOOL=docker-pool
 	_DOCKER_COMPAT_MODE=1
+	CONFIG_NAME=docker
 	;;
     2)
 	_STORAGE_IN_FILE=$1
@@ -1243,6 +1320,13 @@ fi
 
 # Verify storage options set correctly in input files
 check_storage_options
+
+# Resolve DEVS to absolute paths.
+# Trim leading and trailing spaces in _DEVS_ABS.
+if [ -n "$DEVS" ]; then
+  _DEVS_ABS=$(canonicalize_block_devs "${DEVS}")
+  _DEVS_ABS=$(echo "$_DEVS_ABS"|tr -d '[:space:]')
+fi
 
 # Read mounts
 _ROOT_DEV=$( awk '$2 ~ /^\/$/ && $1 !~ /rootfs/ { print $1 }' /proc/mounts )
@@ -1270,6 +1354,15 @@ else
   fi
 fi
 
+# Source metadata file to determine if metadata can be updated
+# or not.
+if [ -e ${_CONFIG_DIR}/${CONFIG_NAME}/"metadata" ];then
+   source ${_CONFIG_DIR}/${CONFIG_NAME}/"metadata"
+   check_metadata_changes
+else
+   _UPDATE_METADATA=true
+fi
+
 if [ $_RESET -eq 1 ]; then
     reset_storage
     exit 0
@@ -1277,9 +1370,7 @@ fi
 
 # If there is no volume group specified or no root volume group, there is
 # nothing to do in terms of dealing with disks.
-if [[ -n "$DEVS" && -n "$VG" ]]; then
-  _DEVS_ABS=$(canonicalize_block_devs "${DEVS}")
-
+if [[ -n "$_DEVS_ABS" && -n "$VG" ]];then
   # If all the disks have already been correctly partitioned, there is
   # nothing more to do
   _P=$(scan_disks)

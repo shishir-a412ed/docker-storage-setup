@@ -7,6 +7,9 @@ test_docker_root_volume() {
   local testname=`basename "$0"`
   local vg_name="css-test-foo"
   local docker_root_lv_name="docker-root-lv"
+  local infile="/etc/sysconfig/docker-storage-setup"
+  local outfile="/etc/sysconfig/docker-storage"
+  local default_config_name="docker"
 
   # Error out if any pre-existing volume group vg named css-test-foo
   if vg_exists "$vg_name"; then
@@ -15,7 +18,7 @@ test_docker_root_volume() {
   fi
 
   # Create config file
-  cat << EOF > /etc/sysconfig/docker-storage-setup
+  cat << EOF > $infile
 DEVS="$devs"
 VG=$vg_name
 DOCKER_ROOT_VOLUME=yes
@@ -27,7 +30,7 @@ EOF
  # Test failed.
  if [ $? -ne 0 ]; then
     echo "ERROR: $testname: $CSSBIN failed." >> $LOGS
-    cleanup $vg_name "$devs"
+    cleanup $vg_name "$devs" "$infile" "$outfile" "$default_config_name"
     return $test_status
  fi
 
@@ -35,7 +38,7 @@ EOF
   # successfully.
   if ! lv_exists "$vg_name" "$docker_root_lv_name"; then
     echo "ERROR: $testname: Logical Volume $docker_root_lv_name does not exist." >> $LOGS
-    cleanup $vg_name "$devs"
+    cleanup $vg_name "$devs" "$infile" "$outfile" "$default_config_name"
     return $test_status
   fi
 
@@ -45,12 +48,12 @@ EOF
   mnt=$(findmnt -n -o TARGET --first-only --source /dev/${vg_name}/${docker_root_lv_name})
   if [ "$mnt" != "/var/lib/docker" ];then
    echo "ERROR: $testname: Logical Volume $docker_root_lv_name is not mounted on /var/lib/docker." >> $LOGS
-   cleanup $vg_name "$devs"
+   cleanup $vg_name "$devs" "$infile" "$outfile" "$default_config_name"
    return $test_status
   fi
 
   cleanup_container_root_volume $vg_name $docker_root_lv_name $mnt
-  cleanup $vg_name "$devs"
+  cleanup $vg_name "$devs" "$infile" "$outfile" "$default_config_name"
   return 0
 }
 

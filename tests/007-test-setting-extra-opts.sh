@@ -10,6 +10,9 @@ test_set_extra_docker_opts() {
   local testname=`basename "$0"`
   local vg_name="css-test-foo"
   local extra_options="--storage-opt dm.fs=ext4"
+  local infile="/etc/sysconfig/docker-storage-setup"
+  local outfile="/etc/sysconfig/docker-storage"
+  local default_config_name="docker"
 
   # Error out if volume group $vg_name exists already
   if vg_exists "$vg_name"; then
@@ -17,7 +20,7 @@ test_set_extra_docker_opts() {
     return $test_status
   fi
 
-  cat << EOF > /etc/sysconfig/docker-storage-setup
+  cat << EOF > $infile
 DEVS="$devs"
 VG=$vg_name
 EXTRA_DOCKER_STORAGE_OPTIONS="$extra_options"
@@ -29,18 +32,18 @@ EOF
   # css failed
   if [ $? -ne 0 ]; then
     echo "ERROR: $testname: $CSSBIN --reset failed." >> $LOGS
-    cleanup $vg_name "$devs"
+    cleanup $vg_name "$devs" "$infile" "$outfile" "$default_config_name"
     return $test_status
   fi
 
   # Check if docker-storage config file was created by css
-  if [ ! -f /etc/sysconfig/docker-storage ]; then
-    echo "ERROR: $testname: /etc/sysconfig/docker-storage file was not created." >> $LOGS
-    cleanup $vg_name "$devs"
+  if [ ! -f $outfile ]; then
+    echo "ERROR: $testname: $outfile file was not created." >> $LOGS
+    cleanup $vg_name "$devs" "$infile" "$outfile" "$default_config_name"
     return $test_status
   fi
 
-  source /etc/sysconfig/docker-storage
+  source $outfile
 
   # Search for $extra_options in $options.
   echo $DOCKER_STORAGE_OPTIONS | grep -q -- "$extra_options"
@@ -52,7 +55,7 @@ EOF
     echo "ERROR: $testname: failed. DOCKER_STORAGE_OPTIONS ${DOCKER_STORAGE_OPTIONS} does not include extra_options ${extra_options}." >> $LOGS
   fi
 
-  cleanup $vg_name "$devs"
+  cleanup $vg_name "$devs" "$infile" "$outfile" "$default_config_name"
   return $test_status
 }
 

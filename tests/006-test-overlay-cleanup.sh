@@ -6,6 +6,9 @@ test_reset_overlay() {
   local testname=`basename "$0"`
   local infile=/etc/sysconfig/docker-storage-setup
   local outfile=/etc/sysconfig/docker-storage
+  local config_dir="/var/lib/container-storage-setup"
+  local default_config_name="docker"
+  local metadata_dir="$config_dir"/"$default_config_name"
 
   cat << EOF > ${infile}
 STORAGE_DRIVER=overlay
@@ -18,6 +21,7 @@ EOF
  if [ $? -ne 0 ]; then
     echo "ERROR: $testname: $CSSBIN failed." >> $LOGS
     rm -f $infile $outfile
+    rm -rf $metadata_dir
     return 1
  fi
 
@@ -28,11 +32,12 @@ EOF
     test_status=1
  elif [ -e /etc/sysconfig/docker-storage ]; then
     # Test failed.
-    echo "ERROR: $testname: $CSSBIN --reset failed to cleanup /etc/sysconfig/docker." >> $LOGS
+    echo "ERROR: $testname: $CSSBIN --reset failed to cleanup $outfile." >> $LOGS
     test_status=1
  fi
 
  rm -f $infile $outfile
+ rm -rf $metadata_dir
  return $test_status
 }
 

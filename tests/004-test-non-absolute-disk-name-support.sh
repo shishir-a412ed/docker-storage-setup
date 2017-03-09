@@ -5,6 +5,9 @@ test_non_absolute_disk_name() {
   local test_status=1
   local testname=`basename "$0"`
   local vg_name="css-test-foo"
+  local infile="/etc/sysconfig/docker-storage-setup"
+  local outfile="/etc/sysconfig/docker-storage"
+  local default_config_name="docker"
 
   # Remove prefix /dev/ from disk names to test if non-absolute disk
   # names work.
@@ -19,7 +22,7 @@ test_non_absolute_disk_name() {
     return $test_status
   fi
  
-  cat << EOF > /etc/sysconfig/docker-storage-setup
+  cat << EOF > $infile
 DEVS="$devs"
 VG=$vg_name
 EOF
@@ -30,7 +33,7 @@ EOF
   # Test failed.
   if [ $? -ne 0 ]; then
     echo "ERROR: $testname: $CSSBIN failed." >> $LOGS
-    cleanup $vg_name "$TEST_DEVS"
+    cleanup $vg_name "$TEST_DEVS" "$infile" "$outfile" "$default_config_name"
     return $test_status
   fi
 
@@ -41,7 +44,7 @@ EOF
     echo "ERROR: $testname: $CSSBIN failed. $vg_name was not created." >> $LOGS
   fi
 
-  cleanup $vg_name "$TEST_DEVS"
+  cleanup $vg_name "$TEST_DEVS" "$infile" "$outfile" "$default_config_name"
   return $test_status
 }
 

@@ -20,6 +20,15 @@ check_docker_active() {
   fi
 }
 
+# Check if /var/lib/container-storage-setup is empty or not.
+check_css_config_dir(){
+  local css_config_dir="/var/lib/container-storage-setup"
+  if [[ -d $css_config_dir && "$(ls -A $css_config_dir)" ]];then
+     echo "ERROR: directory ${css_config_dir} is not empty." >&2
+     exit 1
+  fi
+}
+
 # Check metadata if using devmapper
 check_metadata() {
   local devmapper_meta_dir="$METADATA_DIR/devicemapper/metadata/"
@@ -176,6 +185,7 @@ fi
 
 check_docker_active
 check_metadata
+check_css_config_dir
 check_config_files
 setup_workdir
 setup_css_binary
