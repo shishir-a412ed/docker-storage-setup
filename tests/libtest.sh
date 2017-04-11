@@ -50,6 +50,11 @@ vg_exists() {
   return 1
 }
 
+# Tests if the physical volume exists
+pv_exists() {
+  pvs $1 >/dev/null 2>&1
+}
+
 # Tests if the logical volume lv_name exists
 lv_exists() {
   local vg_name=$1
@@ -76,7 +81,14 @@ remove_pvs() {
   local dev devs=$1 pv
   for dev in $devs; do
     pv=$(lsblk -npl -o NAME "$dev" | tail -n +2 | head -1)
-    pvremove -y ${pv} >> $LOGS 2>&1
+    # If lsblk output physical volume (pv) name, pv exists on partition.
+    if [ -n "$pv" ]; then
+      pvremove -y ${pv} >> $LOGS 2>&1
+    # If lsblk output nothing, there might be a pv on block device.
+    # pv name would be same as block device name in this case.
+    elif pv_exists "$dev"; then
+      pvremove -y ${dev} >> $LOGS 2>&1
+    fi
   done
 }
 
@@ -125,8 +137,9 @@ cleanup() {
     outfile=$4
   fi
 
-
-  vgremove -y $vg_name >> $LOGS 2>&1
+  if vg_exists "$vg_name"; then
+    vgremove -y $vg_name >> $LOGS 2>&1
+  fi
   remove_pvs "$devs"
   remove_partitions "$devs"
   # After removing partitions let udev settle down. In some

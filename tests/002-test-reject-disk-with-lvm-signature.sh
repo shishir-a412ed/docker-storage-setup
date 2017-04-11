@@ -7,6 +7,8 @@ test_lvm_sig() {
   local test_status=1
   local testname=`basename "$0"`
   local vg_name="css-test-foo"
+  local tmplog=${WORKDIR}/tmplog
+  local errmsg="Wipe signatures using wipefs or use WIPE_SIGNATURES=true and retry."
 
   # Error out if any pre-existing volume group vg named css-test-foo
   if vg_exists "$vg_name"; then
@@ -25,14 +27,22 @@ EOF
   done
 
   # Run container-storage-setup
-  $CSSBIN >> $LOGS 2>&1
+  $CSSBIN > $tmplog 2>&1
+  rc=$?
+  cat $tmplog >> $LOGS 2>&1
 
-  # Css should fail. If it did not, then test failed. This is very crude
-  # check though as css can fail for so many reasons. A more precise check
-  # would be too check for exact error message.
-  [ $? -ne 0 ] && test_status=0
+  # Test failed.
+  if [ $rc -ne 0 ]; then
+      if grep --no-messages -q "$errmsg" $tmplog; then
+          test_status=0
+      else
+          echo "ERROR: $testname: $CSSBIN Failed for a reason other then \"$errmsg\"" >> $LOGS
+      fi
+  else
+      echo "ERROR: $testname: $CSSBIN Succeeded. Should have failed since LVM2_member signature exists on devices $devs" >> $LOGS
+  fi
 
-  cleanup $vg_name "$devs"
+  cleanup "$vg_name" "$devs"
   return $test_status
 }
 
